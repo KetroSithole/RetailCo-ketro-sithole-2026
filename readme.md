@@ -9,6 +9,8 @@ Loads daily sales CSV files into the staging database **RETAIL_STG**, then loads
 
 **Stakeholder report:** [`docs/retail_data_platform_report.docx`](docs/retail_data_platform_report.docx) explains the data, the approach, the results and how to automate it.
 
+**Website:** open [`website/index.html`](website/index.html) in any browser – a one-page presentation of the project with interactive charts (no server needed).
+
 **Dashboard:** `streamlit run dashboard/streamlit_app.py` opens an interactive website with 6 pages of charts and analysis (see [section 17](#17-dashboard)).
 
 ![RetailCo dashboard - overview](docs/images/dashboard_overview.png)
@@ -329,6 +331,7 @@ etl/settings.py   reads .config
 etl/pipeline.py   setup, extract, run, report
 sql/              1_databases, 2_staging, 3_warehouse, 4_load_warehouse
 sql/queries/      the 4 business questions
+website/          index.html – one-page project website (charts, screenshots, light/dark theme)
 dashboard/        Streamlit dashboard: streamlit_app.py, data.py, app_pages/ (6 pages), .streamlit/config.toml
 docs/             retail_data_platform_report.docx (stakeholder report), brief/, images/ (screenshots and diagrams)
 skills.md         guide for AI assistants working on this project

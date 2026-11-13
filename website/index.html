@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RetailCo Data Platform</title>
+<meta name="description" content="RetailCo: nightly sales CSV files turned into a trusted SQL Server data warehouse, with insights for the business.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  /* ------------------------------------------------------------ theme tokens */
+  :root {
+    --navy: #1F3864; --teal: #2E8B8B; --orange: #E08E2B; --red: #C0392B; --green: #3C8D50; --slate: #7C9CBF;
+    --bg: #F7F9FC; --surface: #FFFFFF; --surface-2: #EEF3F8; --text: #142033; --muted: #5B6779;
+    --border: #DCE4EE; --accent: var(--teal); --accent-ink: #1E6B6B; --hero-from: #1F3864; --hero-to: #2E8B8B;
+    --shadow: 0 1px 2px rgba(16, 32, 51, .06), 0 8px 24px rgba(16, 32, 51, .06);
+    --grid: rgba(20, 32, 51, .08); --heat-low: #E6F2F2; --heat-high: #1F3864;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0B1220; --surface: #121B2E; --surface-2: #18233A; --text: #E8EEF7; --muted: #9AA8BD;
+      --border: #24324D; --accent: #4FB3B3; --accent-ink: #7FD1D1; --hero-from: #0F1E3D; --hero-to: #145959;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25); --grid: rgba(232, 238, 247, .08);
+      --heat-low: #16263F; --heat-high: #5BC0C0;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0B1220; --surface: #121B2E; --surface-2: #18233A; --text: #E8EEF7; --muted: #9AA8BD;
+    --border: #24324D; --accent: #4FB3B3; --accent-ink: #7FD1D1; --hero-from: #0F1E3D; --hero-to: #145959;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25); --grid: rgba(232, 238, 247, .08);
+    --heat-low: #16263F; --heat-high: #5BC0C0;
+  }
+
+  /* ------------------------------------------------------------ base */
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 76px; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif;
+         font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  img { max-width: 100%; display: block; }
+  a { color: var(--accent-ink); }
+  code, pre { font-family: "JetBrains Mono", ui-monospace, monospace; }
+  .wrap { max-width: 1160px; margin: 0 auto; padding: 0 16px; }
+  section { padding: 88px 0; }
+  section:nth-of-type(even) { background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  .eyebrow { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+             color: var(--accent-ink); margin-bottom: 10px; }
+  h1, h2, h3 { line-height: 1.15; margin: 0; letter-spacing: -0.02em; }
+  h2 { font-size: clamp(28px, 4vw, 40px); font-weight: 800; }
+  h3 { font-size: 18px; font-weight: 700; }
+  .lead { font-size: 18px; color: var(--muted); max-width: 720px; margin: 14px 0 0; }
+  .section-head { margin-bottom: 40px; }
+
+  /* ------------------------------------------------------------ nav */
+  nav { position: sticky; top: 0; z-index: 50; backdrop-filter: saturate(180%) blur(12px);
+        background: color-mix(in srgb, var(--bg) 82%, transparent); border-bottom: 1px solid var(--border); }
+  nav .wrap { display: flex; align-items: center; gap: 24px; height: 64px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; color: var(--text); text-decoration: none; white-space: nowrap; }
+  .brand-mark { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, var(--navy), var(--teal));
+                display: grid; place-items: center; color: #fff; font-size: 14px; }
+  .nav-links { display: flex; gap: 4px; margin-left: auto; overflow-x: auto; scrollbar-width: none; }
+  .nav-links a { color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 500; padding: 8px 10px; border-radius: 8px; white-space: nowrap; }
+  .nav-links a:hover { color: var(--text); background: var(--surface-2); }
+  .theme-toggle { border: 1px solid var(--border); background: var(--surface); color: var(--text); width: 38px; height: 38px;
+                  border-radius: 10px; cursor: pointer; display: grid; place-items: center; flex-shrink: 0; }
+  @media (max-width: 860px) { .nav-links { display: none; } .theme-toggle { margin-left: auto; } }
+
+  /* ------------------------------------------------------------ hero */
+  .hero { position: relative; overflow: hidden; color: #fff; padding: 96px 0 72px;
+          background: radial-gradient(1200px 500px at 85% -10%, rgba(224,142,43,.35), transparent 60%),
+                      linear-gradient(135deg, var(--hero-from), var(--hero-to)); }
+  .hero::after { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .18;
+                 background-image: linear-gradient(rgba(255,255,255,.25) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.25) 1px, transparent 1px);
+                 background-size: 48px 48px; mask-image: linear-gradient(to bottom, #000, transparent 85%); }
+  .hero .wrap { position: relative; z-index: 1; }
+  .hero .eyebrow { color: #A7E3E3; }
+  .hero h1 { font-size: clamp(36px, 6vw, 64px); font-weight: 800; max-width: 900px; }
+  .hero h1 span { background: linear-gradient(90deg, #FFFFFF, #A7E3E3); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero p { font-size: 19px; max-width: 680px; color: rgba(255,255,255,.85); margin: 20px 0 32px; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 12px; }
+  .button { display: inline-flex; align-items: center; gap: 8px; padding: 13px 20px; border-radius: 12px; font-weight: 600;
+            text-decoration: none; font-size: 15px; transition: transform .15s ease, box-shadow .15s ease; }
+  .button:hover { transform: translateY(-1px); }
+  .button.primary { background: #fff; color: var(--navy); box-shadow: 0 8px 24px rgba(0,0,0,.2); }
+  .button.ghost { color: #fff; border: 1px solid rgba(255,255,255,.4); }
+  .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-top: 56px; }
+  .kpi { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.18); border-radius: 14px; padding: 16px; backdrop-filter: blur(6px); }
+  .kpi b { display: block; font-size: 26px; font-weight: 800; letter-spacing: -0.02em; }
+  .kpi span { font-size: 13px; color: rgba(255,255,255,.75); }
+  @media (max-width: 960px) { .kpis { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 520px) { .kpis { grid-template-columns: repeat(2, 1fr); } .hero { padding-top: 64px; } }
+
+  /* ------------------------------------------------------------ cards & grids */
+  .grid { display: grid; gap: 20px; }
+  .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  @media (max-width: 960px) { .grid-3, .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 680px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 24px; box-shadow: var(--shadow); min-width: 0; }
+  section:nth-of-type(even) .card { background: var(--bg); }
+  .card p { color: var(--muted); margin: 8px 0 0; font-size: 15px; }
+  .icon { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; margin-bottom: 14px;
+          background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent-ink); }
+  .icon svg { width: 22px; height: 22px; }
+  .stat { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; color: var(--text); }
+  .tag { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px;
+         background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); margin: 3px 4px 0 0; }
+
+  /* ------------------------------------------------------------ data table */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); background: var(--surface-2); }
+  tr:last-child td { border-bottom: 0; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* ------------------------------------------------------------ pipeline steps */
+  .steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; counter-reset: step; margin-bottom: 28px; }
+  .step { position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 20px; box-shadow: var(--shadow); }
+  section:nth-of-type(even) .step { background: var(--bg); }
+  .step::before { counter-increment: step; content: counter(step); position: absolute; top: -12px; left: 18px; width: 26px; height: 26px;
+                  border-radius: 50%; background: var(--accent); color: #fff; font-weight: 700; font-size: 13px; display: grid; place-items: center; }
+  .step h3 { font-size: 16px; margin-top: 6px; }
+  .step p { font-size: 13.5px; color: var(--muted); margin: 6px 0 0; }
+  .step code { font-size: 12px; color: var(--accent-ink); }
+  @media (max-width: 960px) { .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 26px; } }
+  @media (max-width: 520px) { .steps { grid-template-columns: 1fr; } }
+  .figure { background: #fff; border: 1px solid var(--border); border-radius: 16px; padding: 16px; box-shadow: var(--shadow); }
+  .figure img { border-radius: 8px; margin: 0 auto; }
+  .caption { text-align: center; color: var(--muted); font-size: 13px; margin-top: 10px; }
+
+  /* ------------------------------------------------------------ charts */
+  .chart-card h3 { margin-bottom: 4px; }
+  .chart-sub { color: var(--muted); font-size: 14px; margin: 0 0 16px; }
+  .chart-box { position: relative; height: 320px; }
+  .insight { display: flex; gap: 10px; margin-top: 16px; padding: 14px 16px; border-radius: 12px; font-size: 14.5px;
+             background: color-mix(in srgb, var(--accent) 10%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); }
+  .insight svg { flex-shrink: 0; width: 18px; height: 18px; margin-top: 2px; color: var(--accent-ink); }
+  .segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 14px; }
+  .segmented button { border: 0; background: transparent; color: var(--muted); padding: 7px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+  .segmented button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+
+  /* heatmap */
+  .heatmap { display: grid; grid-template-columns: 44px repeat(15, minmax(0, 1fr)); gap: 3px; font-size: 11px; }
+  .heatmap .label { color: var(--muted); display: flex; align-items: center; }
+  .heatmap .hour { color: var(--muted); text-align: center; }
+  .heatmap .cell { aspect-ratio: 1.5; border-radius: 4px; position: relative; cursor: default; }
+  .heatmap .cell:hover { outline: 2px solid var(--orange); z-index: 2; }
+  .heat-legend { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12px; color: var(--muted); }
+  .heat-legend i { flex: 0 0 140px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, var(--heat-low), var(--heat-high)); }
+  .tooltip { position: fixed; pointer-events: none; background: var(--text); color: var(--bg); font-size: 12px; padding: 6px 9px;
+             border-radius: 6px; opacity: 0; transition: opacity .1s; z-index: 100; }
+
+  /* findings */
+  .finding { border-left: 4px solid var(--accent); }
+  .finding .stat { font-size: 26px; }
+  .finding .action { margin-top: 12px; font-size: 14px; font-weight: 600; color: var(--accent-ink); }
+
+  /* gallery */
+  .gallery { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+  @media (max-width: 960px) { .gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { .gallery { grid-template-columns: 1fr; } }
+  .shot { margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; cursor: zoom-in;
+          box-shadow: var(--shadow); transition: transform .2s ease, box-shadow .2s ease; }
+  .shot:hover { transform: translateY(-3px); box-shadow: 0 16px 40px rgba(16,32,51,.16); }
+  .shot img { aspect-ratio: 16 / 11; object-fit: cover; object-position: top left; width: 100%; border-bottom: 1px solid var(--border); }
+  .shot figcaption { padding: 14px 16px; }
+  .shot figcaption b { display: block; font-size: 15px; }
+  .shot figcaption span { color: var(--muted); font-size: 13px; }
+  .lightbox { position: fixed; inset: 0; background: rgba(6, 12, 24, .88); display: none; align-items: flex-start; justify-content: center;
+              z-index: 200; padding: 40px 16px; overflow-y: auto; cursor: zoom-out; }
+  .lightbox.open { display: flex; }
+  .lightbox img { max-width: 1200px; width: 100%; border-radius: 12px; box-shadow: 0 30px 80px rgba(0,0,0,.5); }
+
+  /* code */
+  pre { background: #0D1526; color: #D6E2F0; border-radius: 14px; padding: 20px; overflow-x: auto; font-size: 14px; line-height: 1.7; margin: 0; position: relative; }
+  pre .comment { color: #7E8FAA; }
+  .copy { position: absolute; top: 12px; right: 12px; background: rgba(255,255,255,.08); color: #D6E2F0; border: 1px solid rgba(255,255,255,.15);
+          border-radius: 8px; padding: 5px 10px; font: 500 12px Inter, sans-serif; cursor: pointer; }
+
+  footer { padding: 40px 0; color: var(--muted); font-size: 14px; border-top: 1px solid var(--border); }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; }
+
+  .reveal { opacity: 0; transform: translateY(16px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.visible { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } html { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-bulb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.2 1 2V17h6v-.3c0-.8.4-1.5 1-2A7 7 0 0 0 12 2z"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 10 5-10 5L2 7l10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 3"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+</svg>
+
+<nav aria-label="Main">
+  <div class="wrap">
+    <a class="brand" href="#top"><span class="brand-mark">R</span>RetailCo Data Platform</a>
+    <div class="nav-links">
+      <a href="#problem">Problem</a><a href="#data">Data</a><a href="#pipeline">Pipeline</a><a href="#model">Model</a>
+      <a href="#insights">Insights</a><a href="#dashboard">Dashboard</a><a href="#automation">Automation</a><a href="#run">Run it</a>
+    </div>
+    <button class="theme-toggle" id="themeToggle" aria-label="Switch light or dark theme"><svg width="18" height="18"><use href="#i-moon"/></svg></button>
+  </div>
+</nav>
+
+<!-- ================================================================== HERO -->
+<header class="hero" id="top">
+  <div class="wrap">
+    <div class="eyebrow">Data engineering · SQL Server · Python · Streamlit</div>
+    <h1>From nightly CSV files to <span>trusted sales insight</span></h1>
+    <p>Every night RetailCo's sales system exports a file. This platform loads it, cleans it, keeps the full history and answers the business's questions in seconds, with no manual steps.</p>
+    <div class="buttons">
+      <a class="button primary" href="#insights">See the insights &rarr;</a>
+      <a class="button ghost" href="#pipeline">How it works</a>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><b data-count="541909">541,909</b><span>rows processed</span></div>
+      <div class="kpi"><b>£9.77m</b><span>net sales captured</span></div>
+      <div class="kpi"><b data-count="19773">19,773</b><span>customer orders</span></div>
+      <div class="kpi"><b data-count="4372">4,372</b><span>customers</span></div>
+      <div class="kpi"><b data-count="38">38</b><span>countries</span></div>
+      <div class="kpi"><b>~30 s</b><span>full load time</span></div>
+    </div>
+  </div>
+</header>
+
+<main>
+<!-- ================================================================== PROBLEM -->
+<section id="problem">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="eyebrow">The problem</div>
+      <h2>Raw exports are messy, and everyone got a different answer</h2>
+      <p class="lead">Simple questions like "what were our best products last month?" meant hours in spreadsheets. The raw files hide real-world problems that quietly change the numbers.</p>
+    </div>
+    <div class="grid grid-3 reveal">
+      <div class="card"><div class="icon"><svg><use href="#i-alert"/></svg></div><h3>Messy data</h3><p>Duplicate lines, blank customers, cancellations mixed with sales, postage and fees posing as products.</p></div>
+      <div class="card"><div class="icon"><svg><use href="#i-layers"/></svg></div><h3>No single truth</h3><p>Every team cleaned the data their own way, so reports never matched.</p></div>
+      <div class="card"><div class="icon"><svg><use href="#i-clock"/></svg></div><h3>Manual & slow</h3><p>Nothing was automated, nothing was logged, and history was overwritten.</p></div>
+    </div>
+    <div class="grid grid-4 reveal" style="margin-top:20px">
+      <div class="card"><div class="stat">5,268</div><p>exact duplicate lines removed</p></div>
+      <div class="card"><div class="stat">25%</div><p>of lines have no customer number</p></div>
+      <div class="card"><div class="stat">9,251</div><p>cancellation lines to separate</p></div>
+      <div class="card"><div class="stat">2,940</div><p>postage, fee and discount lines</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================== DATA -->
+<section id="data">
+  <div class="wrap">
+    <div class="grid grid-2" style="align-items:center">
+      <div class="reveal">
+        <div class="eyebrow">The data</div>
+        <h2>Real transactions from a UK online gift retailer</h2>
+        <p class="lead">The <a href="https://archive.ics.uci.edu/dataset/352/online+retail" target="_blank" rel="noopener">Online Retail dataset</a> (UCI Machine Learning Repository, ID 352): every sale from 1 December 2010 to 9 December 2011. Many customers are wholesalers. Free to use under CC BY 4.0.</p>
+        <div style="margin-top:18px">
+          <span class="tag">InvoiceNo</span><span class="tag">StockCode</span><span class="tag">Description</span><span class="tag">Quantity</span>
+          <span class="tag">InvoiceDate</span><span class="tag">UnitPrice</span><span class="tag">CustomerID</span><span class="tag">Country</span>
+        </div>
+      </div>
+      <div class="card reveal">
+        <h3>How each data problem is handled</h3>
+        <div class="table-wrap" style="margin-top:14px">
+          <table>
+            <thead><tr><th>Issue</th><th class="num">Rows</th><th>Action</th></tr></thead>
+            <tbody>
+              <tr><td>No customer number</td><td class="num">135,037</td><td>kept as guest</td></tr>
+              <tr><td>Cancellations</td><td class="num">9,251</td><td>kept, shown apart</td></tr>
+              <tr><td>Exact duplicates</td><td class="num">5,268</td><td>removed</td></tr>
+              <tr><td>Postage, fees, discounts</td><td class="num">2,940</td><td>kept, not product sales</td></tr>
+              <tr><td>"Damaged", "?" stock notes</td><td class="num">2,459</td><td>stock adjustment</td></tr>
+              <tr><td>Huge quantities / negative prices</td><td class="num">7</td><td>flagged for review</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================== PIPELINE -->
+<section id="pipeline">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="eyebrow">How it works</div>
+      <h2>A simple, safe nightly pipeline</h2>
+      <p class="lead">Python only moves files. All cleaning and modelling lives in SQL Server: a staging database <b>RETAIL_STG</b> and a data warehouse <b>RETAIL_DWH</b>.</p>
+    </div>
+    <div class="steps reveal">
+      <div class="step"><h3>File arrives</h3><p>The nightly CSV lands in the <code>inbox</code> folder.</p></div>
+      <div class="step"><h3>Load to staging</h3><p>Copied unchanged into <code>RETAIL_STG.stg.salesRaw</code>.</p></div>
+      <div class="step"><h3>Clean</h3><p>The view <code>stg.salesClean</code> applies every cleaning rule.</p></div>
+      <div class="step"><h3>Build warehouse</h3><p><code>etl.loadWarehouse</code> updates dimensions and <code>fact.sales</code>.</p></div>
+      <div class="step"><h3>Archive & log</h3><p>File moved to <code>archive</code>; run logged in <code>etl.runLog</code>.</p></div>
+    </div>
+    <div class="figure reveal"><img src="../docs/images/process_flow.png" alt="Diagram of the nightly file moving through load, clean, build and report steps, with archive, error folder and run log" loading="lazy"></div>
+    <div class="grid grid-4 reveal" style="margin-top:24px">
+      <div class="card"><div class="icon"><svg><use href="#i-copy"/></svg></div><h3>Load once</h3><p>Every line has a fingerprint. Data already loaded is skipped, so nothing is double-counted.</p></div>
+      <div class="card"><div class="icon"><svg><use href="#i-history"/></svg></div><h3>Full history</h3><p>Products and customers are SCD type 2: changes become new versions, old sales keep the old version.</p></div>
+      <div class="card"><div class="icon"><svg><use href="#i-trash"/></svg></div><h3>No hard deletes</h3><p>Lines removed from a corrected invoice are soft-deleted with a timestamp, never lost.</p></div>
+      <div class="card"><div class="icon"><svg><use href="#i-shield"/></svg></div><h3>All or nothing</h3><p>Each load is one transaction. If anything fails, nothing changes and the error is logged.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================== MODEL -->
+<section id="model">
+  <div class="wrap">
+    <div class="grid grid-2" style="align-items:center">
+      <div class="reveal">
+        <div class="eyebrow">The data model</div>
+        <h2>A star schema built for answers</h2>
+        <p class="lead">One fact table of sales lines, surrounded by the dimensions that describe them: when, what and who.</p>
+        <div class="table-wrap" style="margin-top:20px">
+          <table>
+            <thead><tr><th>Table</th><th>One row per</th></tr></thead>
+            <tbody>
+              <tr><td><code>RETAIL_DWH.fact.sales</code></td><td>sales line</td></tr>
+              <tr><td><code>RETAIL_DWH.dim.calendar</code></td><td>day</td></tr>
+              <tr><td><code>RETAIL_DWH.dim.product</code></td><td>product version (SCD2)</td></tr>
+              <tr><td><code>RETAIL_DWH.dim.customer</code></td><td>customer version (SCD2)</td></tr>
+              <tr><td><code>RETAIL_DWH.etl.runLog</code></td><td>file processed</td></tr>
+              <tr><td><code>RETAIL_DWH.etl.dataQuality</code></td><td>check per run</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="figure reveal"><img src="../docs/images/star_schema.png" alt="Star schema: fact.sales in the centre linked to dim.calendar, dim.product and dim.customer" loading="lazy"><div class="caption">RETAIL_DWH star schema</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================== INSIGHTS -->
+<section id="insights">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="eyebrow">What the data tells us</div>
+      <h2>Insights the business can act on</h2>
+      <p class="lead">All figures come straight from the warehouse. Hover the charts for details.</p>
+    </div>
+
+    <div class="grid grid-2">
+      <div class="card chart-card reveal" style="grid-column: 1 / -1">
+        <h3>Sales build strongly towards Christmas</h3>
+        <p class="chart-sub">Net sales (bars) and orders (line) by month</p>
+        <div class="chart-box"><canvas id="monthlyChart" aria-label="Monthly net sales and orders chart" role="img"></canvas></div>
+        <div class="insight"><svg><use href="#i-bulb"/></svg><div>November 2011 peaked at <b>£1.43m</b>. September–November averaged <b>1.8×</b> a normal month, so stock, staff and marketing should be planned from late summer. December covers only 1–9 Dec.</div></div>
+      </div>
+
+      <div class="card chart-card reveal" style="grid-column: 1 / -1">
+        <h3>When customers order</h3>
+        <p class="chart-sub">Number of orders by day of week and hour</p>
+        <div id="heatmap" class="heatmap" role="img" aria-label="Heatmap of orders by weekday and hour"></div>
+        <div class="heat-legend">fewer<i></i>more orders</div>
+        <div class="insight"><svg><use href="#i-bulb"/></svg><div><b>No orders on Saturdays</b>. Thursday is the busiest day, and <b>78%</b> of orders arrive between 10:00 and 15:59. The peak is Wednesday at noon. Staff customer service and the warehouse around midday.</div></div>
+      </div>
+
+      <div class="card chart-card reveal">
+        <h3>Markets outside the UK</h3>
+        <p class="chart-sub">Net sales by country</p>
+        <div class="segmented" role="group" aria-label="Country view">
+          <button type="button" aria-pressed="true" data-view="abroad">Outside UK</button>
+          <button type="button" aria-pressed="false" data-view="all">Including UK</button>
+        </div>
+        <div class="chart-box"><canvas id="countryChart" aria-label="Net sales by country chart" role="img"></canvas></div>
+        <div class="insight"><svg><use href="#i-bulb"/></svg><div>The UK brings <b>85%</b> of sales. Overseas orders are bigger: <b>£850</b> on average against £499 in the UK, and the Netherlands averages <b>£3.1k</b> per order.</div></div>
+      </div>
+
+      <div class="card chart-card reveal">
+        <h3>Loyal customers carry the business</h3>
+        <p class="chart-sub">Share of customers vs share of sales, by segment</p>
+        <div class="chart-box"><canvas id="segmentChart" aria-label="Customer segments chart" role="img"></canvas></div>
+        <div class="insight"><svg><use href="#i-bulb"/></svg><div><b>Champions</b> are 26% of customers but bring <b>68%</b> of sales. <b>656</b> good customers are "at risk" of leaving: a win-back offer to them is the quickest revenue opportunity.</div></div>
+      </div>
+
+      <div class="card reveal" style="grid-column: 1 / -1">
+        <h3>Top 10 products, November 2011</h3>
+        <p class="chart-sub">Net sales after cancellations</p>
+        <div class="table-wrap">
+          <table id="productsTable">
+            <thead><tr><th>#</th><th>Product</th><th>Stock code</th><th class="num">Net sales</th><th style="width:40%">Share of the top 10</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="reveal" style="margin:48px 0 16px; font-size:22px">From findings to actions</h3>
+    <div class="grid grid-3 reveal">
+      <div class="card finding"><div class="stat">22%</div><p>of products make 80% of sales (831 of 3,789).</p><div class="action">Never let them run out of stock</div></div>
+      <div class="card finding"><div class="stat">19%</div><p>of new customers order again the next month.</p><div class="action">Send a second-order offer within 30 days</div></div>
+      <div class="card finding"><div class="stat">97%</div><p>of December's cancelled value happened on a single day.</p><div class="action">Review how very large orders are placed</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================== DASHBOARD -->
+<section id="dashboard">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="eyebrow">Interactive dashboard</div>
+      <h2>Six pages of live analysis in Streamlit</h2>
+      <p class="lead">Filter by month and country; every chart comes with a note calculated from the data. Click a screenshot to enlarge it.</p>
+    </div>
+    <div class="gallery reveal" id="gallery">
+      <figure class="shot"><img src="../docs/images/dashboard_overview.png" alt="Dashboard overview page" loading="lazy"><figcaption><b>Overview</b><span>KPIs, monthly trend, cancellations</span></figcaption></figure>
+      <figure class="shot"><img src="../docs/images/dashboard_sales_patterns.png" alt="Dashboard when customers buy page" loading="lazy"><figcaption><b>When customers buy</b><span>Day × hour heatmap, daily sales</span></figcaption></figure>
+      <figure class="shot"><img src="../docs/images/dashboard_products.png" alt="Dashboard products page" loading="lazy"><figcaption><b>Products</b><span>Best sellers, 80/20 curve, rising stars</span></figcaption></figure>
+      <figure class="shot"><img src="../docs/images/dashboard_customers.png" alt="Dashboard customers page" loading="lazy"><figcaption><b>Customers</b><span>Segments, cohort retention, top customers</span></figcaption></figure>
+      <figure class="shot"><img src="../docs/images/dashboard_markets.png" alt="Dashboard markets page" loading="lazy"><figcaption><b>Markets</b><span>Sales by country, order size</span></figcaption></figure>
+      <figure class="shot"><img src="../docs/images/dashboard_pipeline.png" alt="Dashboard data quality and ETL page" loading="lazy"><figcaption><b>Data quality & ETL</b><span>Checks, run log, history</span></figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================== AUTOMATION -->
+<section id="automation">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="eyebrow">Going live</div>
+      <h2>Hands-off, every night</h2>
+      <p class="lead">Start on the existing server, then move to managed cloud services as the business grows.</p>
+    </div>
+    <div class="grid grid-2 reveal">
+      <div class="card">
+        <span class="tag">Option A · quick start</span>
+        <h3 style="margin-top:10px">Existing server</h3>
+        <p>SQL Server Agent runs <code>python main.py run</code> at 02:30. Files arrive in a shared folder, and Database Mail emails the team if a run fails. Live within days, at no extra cost.</p>
+      </div>
+      <div class="card">
+        <span class="tag">Option B · recommended for growth</span>
+        <h3 style="margin-top:10px">Microsoft Azure</h3>
+        <p>Blob Storage receives the file, Data Factory runs the pipeline, Azure SQL hosts both databases, Key Vault keeps secrets, Monitor sends alerts, and Power BI refreshes the dashboards.</p>
+      </div>
+    </div>
+    <div class="figure reveal" style="margin-top:24px"><img src="../docs/images/automation_azure.png" alt="Azure architecture: sales system, Blob Storage, Data Factory, Azure SQL Database, Power BI, Key Vault, Monitor and GitHub" loading="lazy"><div class="caption">The automated platform on Microsoft Azure</div></div>
+  </div>
+</section>
+
+<!-- ================================================================== RUN IT -->
+<section id="run">
+  <div class="wrap">
+    <div class="grid grid-2" style="align-items:start">
+      <div class="reveal">
+        <div class="eyebrow">Run it yourself</div>
+        <h2>Four commands</h2>
+        <p class="lead">Settings live in <code>.config/</code>; switch between dev and prod with one line. Windows login is used by default, so no password is stored.</p>
+        <div style="margin-top:18px">
+          <span class="tag">SQL Server 2025</span><span class="tag">T-SQL procedures</span><span class="tag">Python 3.14</span>
+          <span class="tag">pyodbc</span><span class="tag">Streamlit + Altair</span><span class="tag">SCD type 2</span>
+        </div>
+      </div>
+      <pre class="reveal" id="commands"><button class="copy" type="button" data-copy="commands">Copy</button><span class="comment"># once</span>
+pip install -r requirements.txt
+python main.py setup
+
+<span class="comment"># every day</span>
+python main.py run
+
+<span class="comment"># answers and dashboard</span>
+python main.py report
+streamlit run dashboard/streamlit_app.py</pre>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>RetailCo Data Platform · RETAIL_STG &amp; RETAIL_DWH on SQL Server</span>
+    <span>Data: Chen, D. (2015). Online Retail. UCI Machine Learning Repository. CC BY 4.0.</span>
+  </div>
+</footer>
+
+<div class="lightbox" id="lightbox" role="dialog" aria-label="Enlarged screenshot"><img alt=""></div>
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+// ------------------------------------------------------------ data (from RETAIL_DWH)
+const months = ["Dec 10", "Jan 11", "Feb 11", "Mar 11", "Apr 11", "May 11", "Jun 11", "Jul 11", "Aug 11", "Sep 11", "Oct 11", "Nov 11", "Dec 11*"];
+const netSales = [758091, 578855, 499464, 679329, 482062, 731005, 723845, 676812, 701290, 1011340, 1061701, 1427125, 440400];
+const orders = [1550, 1081, 1093, 1440, 1235, 1668, 1525, 1452, 1339, 1818, 2005, 2751, 816];
+const countries = [["United Kingdom", 8281390], ["Netherlands", 283480], ["Ireland", 259380], ["Germany", 200620], ["France", 182077],
+                   ["Australia", 136923], ["Switzerland", 52483], ["Spain", 51747], ["Belgium", 36663], ["Japan", 35420], ["Sweden", 35166]];
+const segments = [["Champions", 1120, 68.23], ["Loyal", 824, 13.73], ["New & promising", 310, 1.70],
+                  ["Need attention", 346, 1.82], ["At risk", 656, 9.29], ["Hibernating", 1078, 5.22]];
+const products = [["Rabbit night light", "23084", 34344], ["Paper chain kit 50's Christmas", "22086", 28854],
+                  ["White hanging heart T-light holder", "85123A", 14339], ["Popcorn holder", "22197", 13962],
+                  ["Paper chain kit vintage Christmas", "22910", 12817], ["Regency cakestand 3 tier", "22423", 12773],
+                  ["Chilli lights", "79321", 11475], ["Jumbo bag red retrospot", "85099B", 11456],
+                  ["Hot water bottle keep calm", "23355", 11437], ["Jumbo bag 50's Christmas", "23344", 10882]];
+// orders by ISO weekday (1 = Monday) and hour
+const heat = {1:{7:4,8:89,9:274,10:350,11:348,12:494,13:446,14:386,15:360,16:231,17:92,18:2},
+              2:{7:5,8:117,9:309,10:411,11:425,12:552,13:499,14:413,15:447,16:207,17:115,18:9},
+              3:{7:5,8:116,9:301,10:443,11:426,12:626,13:508,14:449,15:424,16:262,17:104,19:2,20:1},
+              4:{6:1,7:9,8:122,9:303,10:458,11:387,12:591,13:490,14:463,15:448,16:348,17:260,18:179,19:134,20:16},
+              5:{7:6,8:121,9:282,10:452,11:397,12:480,13:426,14:398,15:291,16:153,17:91,18:2,19:9,20:1},
+              6:{},
+              7:{9:2,10:225,11:390,12:461,13:361,14:310,15:340,16:114}};
+
+// ------------------------------------------------------------ helpers
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const pounds = value => "£" + Math.round(value).toLocaleString("en-GB");
+const compact = value => value >= 1e6 ? "£" + (value / 1e6).toFixed(2) + "m" : "£" + Math.round(value / 1e3) + "k";
+const tooltip = document.getElementById("tooltip");
+
+// ------------------------------------------------------------ theme
+const root = document.documentElement;
+const toggle = document.getElementById("themeToggle");
+function currentTheme() {
+  return root.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+}
+function setToggleIcon() {
+  toggle.innerHTML = `<svg width="18" height="18"><use href="#i-${currentTheme() === "dark" ? "sun" : "moon"}"/></svg>`;
+}
+try { const saved = localStorage.getItem("retailco-theme"); if (saved) root.dataset.theme = saved; } catch (error) {}
+setToggleIcon();
+toggle.addEventListener("click", () => {
+  root.dataset.theme = currentTheme() === "dark" ? "light" : "dark";
+  try { localStorage.setItem("retailco-theme", root.dataset.theme); } catch (error) {}
+  setToggleIcon();
+  drawCharts();
+  drawHeatmap();
+});
+
+// ------------------------------------------------------------ charts
+let charts = [];
+let countryView = "abroad";
+
+function drawCharts() {
+  if (!window.Chart) return;
+  charts.forEach(chart => chart.destroy());
+  const text = css("--muted"), grid = css("--grid");
+  const isDark = currentTheme() === "dark";
+  const navy = isDark ? "#7FA6E0" : "#1F3864", teal = isDark ? "#4FB3B3" : "#2E8B8B";
+  Chart.defaults.font.family = "Inter, system-ui, sans-serif";
+  Chart.defaults.color = text;
+  const axis = { grid: { color: grid }, border: { display: false } };
+
+  charts.push(new Chart(document.getElementById("monthlyChart"), {
+    data: {
+      labels: months,
+      datasets: [
+        { type: "bar", label: "Net sales", data: netSales, yAxisID: "sales", borderRadius: 6,
+          backgroundColor: netSales.map((value, index) => index >= 9 && index <= 11 ? navy : teal) },
+        { type: "line", label: "Orders", data: orders, yAxisID: "orders", borderColor: "#E08E2B", backgroundColor: "#E08E2B",
+          tension: .35, pointRadius: 3, borderWidth: 2.5 }
+      ]
+    },
+    options: {
+      maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+      plugins: { legend: { position: "bottom", labels: { usePointStyle: true, boxWidth: 8 } },
+                 tooltip: { callbacks: { label: c => c.dataset.label + ": " + (c.dataset.yAxisID === "sales" ? pounds(c.raw) : c.raw.toLocaleString("en-GB")) } } },
+      scales: { x: { ...axis, grid: { display: false } },
+                sales: { ...axis, position: "left", ticks: { callback: compact } },
+                orders: { ...axis, position: "right", grid: { display: false } } }
+    }
+  }));
+
+  const countryRows = countryView === "abroad" ? countries.slice(1) : countries;
+  charts.push(new Chart(document.getElementById("countryChart"), {
+    type: "bar",
+    data: { labels: countryRows.map(row => row[0]),
+            datasets: [{ label: "Net sales", data: countryRows.map(row => row[1]), borderRadius: 5,
+                         backgroundColor: countryRows.map(row => row[0] === "United Kingdom" ? "#E08E2B" : teal) }] },
+    options: { indexAxis: "y", maintainAspectRatio: false,
+               plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => pounds(c.raw) } } },
+               scales: { x: { ...axis, ticks: { callback: compact } }, y: { ...axis, grid: { display: false } } } }
+  }));
+
+  const totalCustomers = segments.reduce((sum, row) => sum + row[1], 0);
+  charts.push(new Chart(document.getElementById("segmentChart"), {
+    type: "bar",
+    data: { labels: segments.map(row => row[0]),
+            datasets: [{ label: "Share of customers", data: segments.map(row => +(100 * row[1] / totalCustomers).toFixed(1)),
+                         backgroundColor: isDark ? "#3B4A66" : "#B8C4D6", borderRadius: 5 },
+                       { label: "Share of sales", data: segments.map(row => row[2]), backgroundColor: navy, borderRadius: 5 }] },
+    options: { indexAxis: "y", maintainAspectRatio: false,
+               plugins: { legend: { position: "bottom", labels: { usePointStyle: true, boxWidth: 8 } },
+                          tooltip: { callbacks: { label: c => c.dataset.label + ": " + c.raw + "%" } } },
+               scales: { x: { ...axis, ticks: { callback: value => value + "%" } }, y: { ...axis, grid: { display: false } } } }
+  }));
+}
+
+document.querySelectorAll(".segmented button").forEach(button => button.addEventListener("click", () => {
+  countryView = button.dataset.view;
+  document.querySelectorAll(".segmented button").forEach(other => other.setAttribute("aria-pressed", String(other === button)));
+  drawCharts();
+}));
+
+// ------------------------------------------------------------ heatmap
+function mix(low, high, t) {
+  const parse = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+  const [a, b] = [parse(low), parse(high)];
+  return "rgb(" + a.map((value, i) => Math.round(value + (b[i] - value) * t)).join(",") + ")";
+}
+function drawHeatmap() {
+  const box = document.getElementById("heatmap");
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const hours = Array.from({ length: 15 }, (_, i) => i + 6);
+  const max = Math.max(...Object.values(heat).flatMap(day => Object.values(day)));
+  const low = css("--heat-low"), high = css("--heat-high");
+  let html = "<div></div>" + hours.map(hour => `<div class="hour">${hour}</div>`).join("");
+  days.forEach((day, index) => {
+    html += `<div class="label">${day}</div>`;
+    hours.forEach(hour => {
+      const count = heat[index + 1][hour] || 0;
+      const t = count ? 0.12 + 0.88 * Math.sqrt(count / max) : 0;
+      html += `<div class="cell" style="background:${mix(low, high, t)}" data-tip="${day} ${hour}:00 · ${count.toLocaleString("en-GB")} orders"></div>`;
+    });
+  });
+  box.innerHTML = html;
+}
+document.getElementById("heatmap").addEventListener("mousemove", event => {
+  const tip = event.target.dataset.tip;
+  tooltip.style.opacity = tip ? 1 : 0;
+  if (tip) { tooltip.textContent = tip; tooltip.style.left = event.clientX + 12 + "px"; tooltip.style.top = event.clientY + 12 + "px"; }
+});
+document.getElementById("heatmap").addEventListener("mouseleave", () => tooltip.style.opacity = 0);
+
+// ------------------------------------------------------------ products table
+const topTotal = products.reduce((sum, row) => sum + row[2], 0);
+document.querySelector("#productsTable tbody").innerHTML = products.map((row, index) => `
+  <tr><td>${index + 1}</td><td>${row[0]}</td><td><code>${row[1]}</code></td><td class="num">${pounds(row[2])}</td>
+  <td><div style="height:8px;border-radius:4px;background:var(--surface-2)"><div style="height:8px;border-radius:4px;width:${(100 * row[2] / products[0][2]).toFixed(0)}%;background:var(--accent)"></div></div>
+  <span style="font-size:12px;color:var(--muted)">${(100 * row[2] / topTotal).toFixed(1)}%</span></td></tr>`).join("");
+
+// ------------------------------------------------------------ gallery lightbox
+const lightbox = document.getElementById("lightbox");
+document.querySelectorAll(".shot").forEach(shot => shot.addEventListener("click", () => {
+  const image = shot.querySelector("img");
+  lightbox.querySelector("img").src = image.src;
+  lightbox.querySelector("img").alt = image.alt;
+  lightbox.classList.add("open");
+}));
+lightbox.addEventListener("click", () => lightbox.classList.remove("open"));
+document.addEventListener("keydown", event => { if (event.key === "Escape") lightbox.classList.remove("open"); });
+
+// ------------------------------------------------------------ copy button
+document.querySelectorAll("[data-copy]").forEach(button => button.addEventListener("click", () => {
+  const text = document.getElementById(button.dataset.copy).innerText.replace(/^Copy\s*/, "");
+  navigator.clipboard?.writeText(text).then(() => { button.textContent = "Copied"; setTimeout(() => button.textContent = "Copy", 1500); });
+}));
+
+// ------------------------------------------------------------ reveal on scroll + count-up
+const observer = new IntersectionObserver(entries => entries.forEach(entry => {
+  if (entry.isIntersecting) { entry.target.classList.add("visible"); observer.unobserve(entry.target); }
+}), { threshold: 0.12 });
+document.querySelectorAll(".reveal").forEach(element => observer.observe(element));
+if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  document.querySelectorAll("[data-count]").forEach(element => {
+    const target = +element.dataset.count; const start = performance.now();
+    const step = now => { const t = Math.min(1, (now - start) / 1200);
+      element.textContent = Math.round(target * (1 - Math.pow(1 - t, 3))).toLocaleString("en-GB");
+      if (t < 1) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
+  });
+}
+
+drawHeatmap();
+drawCharts();
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (!root.dataset.theme) { setToggleIcon(); drawCharts(); drawHeatmap(); } });
+</script>
+</body>
+</html>
