@@ -1,0 +1,24 @@
+# RetailCo dashboard theme - same navy / teal palette as the stakeholder report
+[theme]
+base = "light"
+primaryColor = "#2E8B8B"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F3F6FA"
+textColor = "#1F2937"
+borderColor = "#D9E2EC"
+showWidgetBorder = true
+baseRadius = "8px"
+font = "'Inter':https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+headingFont = "'Inter':https://fonts.googleapis.com/css2?family=Inter:wght@600;700&display=swap"
+baseFontSize = 14
+chartCategoricalColors = ["#1F3864", "#2E8B8B", "#E08E2B", "#C0392B", "#7C9CBF", "#3C8D50", "#8E6CB0", "#94A3B8"]
+chartSequentialColors = ["#EEF3F8", "#D3E3EE", "#B4D2E0", "#8FBFCF", "#5FA8B4", "#2E8B8B", "#23707A", "#1F5670", "#1F3864", "#152649"]
+
+[theme.sidebar]
+backgroundColor = "#F3F6FA"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

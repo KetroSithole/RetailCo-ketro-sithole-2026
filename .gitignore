@@ -1,0 +1,8 @@
+# environment files can hold passwords - only the template is shared  .config/*.env
+!.config/example.env
+
+# data files
+data/
+
+# python
+__pycache__/

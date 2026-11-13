@@ -1,0 +1,4 @@
+pyodbc==5.3.0          # SQL Server driver (needs "ODBC Driver 18 for SQL Server")
+python-dotenv==1.2.3   # reads the .env files
+streamlit==1.63.0       # dashboard (includes altair for charts)
+pandas==3.0.3          # dashboard data handling
