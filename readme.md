@@ -32,7 +32,7 @@ Loads daily sales CSV files into the staging database **RETAIL_STG**, then loads
 13. [Folders](#13-folders)
 14. [In SSMS](#14-in-ssms)
 15. [Tested](#15-tested)
-16. [Answers to the assessment questions](#16-answers-to-the-assessment-questions)
+16. [Interview Q&A – design, data quality, future](#16-interview-qa)
 17. [Dashboard](#17-dashboard)
 
 ## 1. The process
@@ -362,19 +362,156 @@ EXEC RETAIL_DWH.etl.loadWarehouse @runId = 1;               -- re-run a file by 
 | Re-run a file by hand (`EXEC ... @runId`) | 0 new, all skipped |
 | File with missing columns | moved to `error/`, logged as failed |
 
-## 16. Answers to the assessment questions
+## 16. Interview Q&A
 
-| Question | Answer |
+Answers to every question in part 3 of the brief, in the brief's order.
+
+### Design decisions
+
+**1. How did you structure your data models? Why?**
+
+| Layer | Objects | Why |
+|---|---|---|
+| Staging database `RETAIL_STG` | `stg.salesRaw` (file as received), `stg.salesClean` (view with all cleaning rules) | The raw file is kept exactly as delivered, so any day can be audited or reloaded. All cleaning sits in one view, so there is one place to read and change the rules. |
+| Data warehouse `RETAIL_DWH` | star schema: `fact.sales` + `dim.calendar`, `dim.product`, `dim.customer` | A star schema is the standard shape for reporting: questions become short joins (see `sql/queries/`), and it plugs straight into Power BI or Excel. |
+| ETL tracking `RETAIL_DWH.etl` | `etl.runLog`, `etl.dataQuality`, `etl.loadWarehouse` | Every run and every data problem is recorded, so the pipeline can be monitored and trusted. |
+
+Two more choices:
+- **Python only moves files; all logic is in SQL.** SQL Server is where the data lives, and the stored procedure runs each load as one transaction, so a failure never leaves half-loaded data.
+- **Kept deliberately small:** seven tables and one view. This makes the platform easy to explain, hand over and maintain.
+
+**2. What grain did you choose for each table?**
+
+| Table | Grain (one row = …) | Key |
+|---|---|---|
+| `RETAIL_STG.stg.salesRaw` | one line of one delivered file | `runId` + `lineNumber` |
+| `RETAIL_DWH.fact.sales` | one sales line (an invoice line) | `salesKey`; `lineHash` is unique among active rows |
+| `RETAIL_DWH.dim.calendar` | one day | `calendarKey` (YYYYMMDD) |
+| `RETAIL_DWH.dim.product` | one version of a product (SCD type 2) | `productKey`; business key `stockCode` |
+| `RETAIL_DWH.dim.customer` | one version of a customer (SCD type 2); key 0 = guest | `customerKey`; business key `customerId` |
+| `RETAIL_DWH.etl.runLog` | one processed file | `runId` |
+| `RETAIL_DWH.etl.dataQuality` | one check in one run | `runId` + `checkName` |
+
+The fact table uses the lowest level available, the invoice line, so any summary can be built from it: orders, customers, products, days or countries.
+
+**3. How do your models enable incremental loads?**
+
+- **One file = one run.** `etl.loadWarehouse @runId` processes only that file's rows. Nothing is truncated or rebuilt.
+- **File level:** the file's SHA-256 hash is stored in `etl.runLog`, so the same file is never loaded twice.
+- **Line level:** every cleaned line gets a `lineHash` fingerprint. A line already in `fact.sales` is skipped, so the same data in a *different* file is also never double-counted.
+- **Dimensions:**
+  - New products and customers are inserted.
+  - Changed ones get a new SCD2 version; unchanged ones are left alone.
+  - Missing calendar days are added.
+- **Safe to re-run:** running the same file again inserts nothing (tested: 0 new, all skipped).
+- **Lineage:** every fact row has `runId` and `loadedAt`, so each row can be traced to its file and load time.
+
+**4. What changes would be needed if this data started landing every hour / minute / second?**
+
+| Frequency | What changes |
 |---|---|
-| How does tomorrow's data arrive? | Put the file in the inbox and run `python main.py run`. Only new lines are added. |
-| What if the same file arrives twice? | Its hash is already in `etl.runLog`, so the file is skipped. The same lines in a different file are skipped line by line. |
-| What if corrections arrive? | Send the corrected invoices. Changed or removed lines are soft-deleted and the new lines inserted. |
-| How is history kept? | SCD type 2 on product and customer; soft deletes on sales; nothing is ever removed. |
-| Which data came from which file? | `fact.sales.runId` → `etl.runLog.fileName`. The original file stays in `archive/`. |
-| What if data arrives every hour? | Same command on a schedule. Each run only processes its own file, so it stays fast. |
-| How would it handle millions of rows a day? | `BULK INSERT` into staging, partition `fact.sales` by date, and add a columnstore index. |
-| How is it monitored? | `etl.runLog` (status, inserted / skipped / deleted counts), `etl.dataQuality`, and files in `error/`. |
-| Assumptions | Revenue = quantity × price (GBP). Cancellations count in the month they happen. A file contains complete invoices. Exact duplicate lines are mistakes. |
+| **Every hour** | Nothing in the design. Schedule `python main.py run` hourly (SQL Server Agent, Task Scheduler or Azure Data Factory). Each run only handles its own small file. |
+| **Every minute** | Micro-batches:<br>- trigger on file arrival (Data Factory event trigger) instead of a clock;<br>- load staging with `BULK INSERT` instead of row inserts;<br>- let one procedure call process several waiting files;<br>- clear processed rows from `stg.salesRaw` (the original files stay in the archive);<br>- refresh dashboards every few minutes, not on every file. |
+| **Every second** | Streaming instead of files:<br>- the sales system publishes events to Event Hubs or Kafka (or SQL Server change data capture);<br>- a stream job (Azure Stream Analytics or Spark) cleans and de-duplicates events using the same rules and the `lineHash` idea;<br>- events are appended to a staging table, and `fact.sales` is merged every 1–5 minutes;<br>- live KPIs read from the stream, while the warehouse remains the full, trusted history. |
+
+### Data quality handling
+
+**5. What data quality issues did you find?**
+
+| Issue | Rows (full file) |
+|---|---|
+| Lines with no customer number | 135,037 (25%) |
+| Cancellations (invoice starts with C, negative quantity) | 9,251 |
+| Exact duplicate lines | 5,268 |
+| Postage, fees, discounts, manual entries, samples, gift vouchers (not products) | 2,940 |
+| Zero price and no customer: warehouse notes such as "damaged", "?", "check" | 2,459 |
+| Very large quantities (10,000+, each cancelled the same day) | 5 |
+| Negative prices (bad-debt write-offs) | 2 |
+| Values that are not valid numbers or dates | 0 |
+| Extra spaces and mixed case in descriptions; lower-case stock codes | ~131,000 |
+| Old country codes: EIRE, RSA, USA, Unspecified | ~8,700 |
+| Same stock code with several descriptions | 638 codes |
+| Customers seen in two countries | 8 |
+
+**6. How did you handle them? Why those approaches?**
+
+- **Keep the original, flag the problem.** Raw rows are never changed. The cleaning view adds flags (`isDuplicate`, `isInvalid`) and labels (`lineType`, `transactionType`). Every rule is visible in one place and can be changed and replayed.
+- **Remove only what is certainly wrong.** Exact duplicates and rows that can't be converted to numbers or dates are removed. Anything else could be a real sale, so it is kept and labelled. No sale is silently lost.
+- **Separate, don't mix.** Cancellations are kept as `cancelledAmount`; postage and fees are not counted as product sales; stock notes are not sales. Gross, cancelled and net sales are therefore each correct.
+- **Guests are kept** as `customerKey = 0`. Their sales still count, but they never distort customer analysis.
+- **Duplicates are found with a hash of the whole line.** The server collation is case-insensitive, so comparing column values would wrongly treat "Bag" and "BAG" as the same line.
+- **Every run counts every issue** in `etl.dataQuality`, so trends and spikes are visible.
+
+**7. What issues did you surface vs. correct?**
+
+| Corrected (changed automatically) | Surfaced (kept, labelled and counted for people to review) |
+|---|---|
+| Exact duplicate lines – removed | Missing customer numbers – guest, `guestRows` |
+| Unreadable numbers / dates – removed | Cancellations – `cancelledAmount`, `cancellations` |
+| Extra spaces, upper/lower case – standardised | Very large quantities – `largeQuantities` |
+| Country codes – Ireland, South Africa, United States, Unknown | Negative prices – `negativePrices` |
+| Stock code case (85123a = 85123A) | Postage / fees / discounts – `nonProductRows` |
+| Text converted to numbers and dates | Stock notes ("damaged", "?") – `stockAdjustments` |
+| Product name – most used description chosen | Lines removed from a re-sent invoice – soft-deleted, `deletedRowCount` |
+| | Product / customer changes – SCD2 versions, `changedProducts`, `changedCustomers` |
+
+**The rule:** correct only what has one obviously right answer; surface anything that needs a business decision.
+
+**8. What assumptions did you make?**
+
+- A file contains **complete invoices**. If an invoice appears in a newer file, that file has its full, latest version.
+- **Exact duplicate lines** in a file are recording errors, not two separate purchases.
+- **Revenue** = quantity × unit price, in GBP. A **cancellation** counts in the month it happens.
+- **Zero price and no customer** is a warehouse note, not a sale.
+- Invoices starting with **C** are cancellations and those starting with **A** are adjustments.
+- An **order** is a sale invoice with product sales above zero.
+- **"Last month"** = November 2011, the last full month in the data.
+- There is **no product category** in the data, so the two category questions were not answered rather than guessed.
+
+### Future considerations
+
+**9. What would you do differently with more time?**
+
+- **Automated tests** for the SQL (tSQLt) and the Python, run in **CI/CD** with GitHub Actions on every change.
+- **Product categories** from a product master, to answer the two category questions.
+- **Link each cancellation to its original order** for true return rates per product.
+- A **quarantine table** for rejected rows, so they can be fixed and re-loaded instead of only counted.
+- **Several SCD2 changes inside one file** (today a file produces at most one new version per product or customer).
+- A **data contract** with the source team: column list, complete invoices, no hard deletes.
+- A **Power BI semantic model** on `RETAIL_DWH` for self-service reporting.
+
+**10. How would this design scale to millions of daily rows?**
+
+The incremental design already scales; the changes are mostly about speed:
+- **Faster loading:** `BULK INSERT` / bcp or Data Factory copy into staging. Python row inserts take about 10 s per 540k rows today.
+- **Bigger fact table:** partition `fact.sales` by month and add a **clustered columnstore index** for fast, compressed reporting.
+- **Lean staging:** remove processed rows from `stg.salesRaw` after a successful run, since the original files stay in the archive. The cleaning view then only reads today's data.
+- **Indexes already in place:** the SCD2 lookups (`stockCode` / `customerId` + `validFrom`) and the duplicate check (`lineHash`) are indexed.
+- **Bigger platform when needed:** Azure SQL Hyperscale, or Microsoft Fabric / Synapse, using the same model and SQL.
+
+**11. What monitoring or alerts would you implement?**
+
+| Alert | Rule | Source |
+|---|---|---|
+| Run failed | `status = 'failed'` | `etl.runLog` |
+| File missing | no successful run by 03:00 | `etl.runLog.startedAt` |
+| Run too slow | duration more than 2× the 7-day average | `startedAt`, `finishedAt` |
+| Volume change | `fileRowCount` ±50% vs the 7-day average | `etl.runLog` |
+| Bad rows | `invalidRows` > 0 | `etl.dataQuality` |
+| Data drift | `duplicateRows` > 3% or `guestRows` > 35% of the file | `etl.dataQuality` |
+| Unusual deletes | `deletedRowCount` spike (usually an incomplete file) | `etl.runLog` |
+| Rejected file | any file in the `error` folder | folder check |
+
+- **On the current server:** a SQL Server Agent job checks these queries after each run and sends an email with Database Mail.
+- **On Azure:** Azure Monitor alerts by email or Microsoft Teams.
+- **On the dashboard:** the "Data quality & ETL" page shows the same information.
+
+**12. How would you handle late-arriving corrections?**
+
+- **Corrected invoice re-sent:** the newest version wins. Changed or removed lines are soft-deleted (`isDeleted`, `deletedAt`, `deletedRunId`), and the corrected lines are inserted. Tested: 1 new, 5 skipped, 2 soft-deleted.
+- **Old sales arriving late:** they are inserted with their real `invoiceDate`, so they appear in the right month. Each line also links to the product and customer *version that was valid on that date* (SCD2 lookup on `validFrom`).
+- **Closed months that must not move** (e.g. after month-end reporting): `loadedAt` and `deletedAt` make it possible to report numbers "as of" a date. The next step would be a monthly snapshot table, so any late change shows up as a visible adjustment.
+- **Orders deleted at the source:** see [section 8](#8-deletes--what-we-do-now-and-what-we-advise). Today cancellations arrive as `C` invoices; for real deletes, a daily "deleted invoices" file is the simplest fix.
 
 **Automating it in the cloud:** the same process can run hands-off on Microsoft Azure (details in the stakeholder report, section 8).
 
