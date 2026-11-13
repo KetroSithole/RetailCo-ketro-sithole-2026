@@ -1,4 +1,4 @@
-# RetailCo ETL
+# RetailCo ETL : https://retailcoo.netlify.app/
 
 Loads daily sales CSV files into the staging database **RETAIL_STG**, then loads the data warehouse **RETAIL_DWH** (star schema) in SQL Server.
 
