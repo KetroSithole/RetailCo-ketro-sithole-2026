@@ -342,6 +342,33 @@ The two category questions in the brief are not answered: the source has no prod
 
 ![Data quality and ETL](docs/images/dashboard_pipeline.png)
 
+### Power BI
+
+`RETAIL_DWH` plugs straight into Power BI (**Get data → SQL Server → `RETAIL_DWH`**) with no reshaping. Power BI detects the relationships, and the model loads as a clean star schema.
+
+![Power BI model view](docs/images/powerbi_model.png)
+
+**Why the star schema works well in Power BI:**
+- **One fact, small dimensions.** `fact.sales` filters through `dim.calendar`, `dim.product` and `dim.customer` with simple one-to-many relationships. This is the shape the VertiPaq engine is optimised for: fast, well-compressed, simple DAX.
+- **Integer surrogate keys** (`calendarKey`, `productKey`, `customerKey`) keep relationships small and quick.
+- **Ready-made measures** (`salesAmount`, `cancelledAmount`, `netAmount`) mean no business logic is rebuilt in DAX, so Power BI and the SQL queries report the same numbers.
+- **SCD2 is already resolved.** Each fact row points at the correct product/customer version, so history is right without extra modelling.
+- **`etl.runLog` and `etl.dataQuality`** load next to the facts, so a data-health page can sit in the same report.
+
+| | |
+|---|---|
+| ![Navigator: RETAIL_DWH tables](docs/images/powerbi_navigator.png) | ![Load from RETAIL_DWH](docs/images/powerbi_load.png) |
+
+![Fields available in Power BI](docs/images/powerbi_fields.png)
+
+**Medallion architecture fit:** the layers map directly to Bronze / Silver / Gold, so on a lakehouse (Fabric, Databricks) the same model becomes the **Gold layer** and Power BI connects to it unchanged.
+
+| Medallion layer | This project | Content |
+|---|---|---|
+| Bronze | `RETAIL_STG.stg.salesRaw` | file exactly as received |
+| Silver | `RETAIL_STG.stg.salesClean` | cleaned, de-duplicated, classified |
+| **Gold** | `RETAIL_DWH` (`dim.*`, `fact.sales`) | business-ready star schema → **Power BI** |
+
 **Website:** live at [retailcoo.netlify.app](https://retailcoo.netlify.app/) (source [`website/index.html`](website/index.html)). It is a one-page presentation of the project with interactive charts, the dashboard gallery and a light/dark theme.
 
 **Key findings:**
@@ -429,7 +456,7 @@ Answers to part 3 of the brief.
 - a quarantine table for rejected rows
 - multiple SCD2 changes within one file
 - a data contract with the source team
-- a Power BI semantic model
+- a published Power BI semantic model with shared DAX measures (the star schema already loads cleanly; see [Power BI](#power-bi))
 
 **How would this scale to millions of daily rows?**
 - `BULK INSERT` / Data Factory copy instead of row inserts
